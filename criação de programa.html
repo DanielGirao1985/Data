@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Vistoria Predial - TJCE</title>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- HTML2PDF para gerar o PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Estilos específicos para a impressão/PDF para imitar a planilha */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap');
+
+        .pdf-page {
+            width: 210mm; /* Largura exata A4 */
+            padding: 15mm; /* Margem interna que centraliza o conteúdo */
+            background: white;
+            font-family: 'Roboto', sans-serif;
+            font-size: 10px;
+            color: black;
+            display: none; 
+            box-sizing: border-box; /* Garante que o padding fique dentro dos 210mm */
+            margin: 0 auto;
+        }
+
+        .pdf-visible {
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 0 15px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+        }
+
+        .table-bordered {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #000;
+        }
+
+        .table-bordered th, .table-bordered td {
+            border: 1px solid #000;
+            padding: 3px;
+            vertical-align: top;
+        }
+
+        /* Correção crítica para evitar quebra de linha dentro de itens no Chrome */
+        tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+        }
+
+        .check-box {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 1px solid #000;
+            margin-right: 3px;
+            position: relative;
+            vertical-align: middle;
+        }
+
+        .check-box.checked::after {
+            content: 'X';
+            position: absolute;
+            top: -3px;
+            left: 1px;
+            font-size: 9px;
+            font-weight: bold;
+        }
+
+        /* Estilo para simular ( ) no PDF */
+        .parenthesis-check {
+            font-family: 'Courier Prime', monospace;
+            font-weight: bold;
+        }
+
+        .rating-circle {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid #000;
+            text-align: center;
+            line-height: 12px;
+            font-size: 8px;
+            margin: 0 2px;
+        }
+        
+        .rating-circle.selected {
+            background-color: #000;
+            color: #fff;
+        }
+
+        .field-label {
+            font-weight: bold;
+            font-size: 8px;
+            text-transform: uppercase;
+        }
+        
+        .field-value {
+            border-bottom: 1px dotted #000;
+            padding-left: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 9px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // CONFIGURAÇÃO COMPLETA DAS SEÇÕES (1.0 A 23.0)
+        const SECTIONS = [
+            // 1.0
+            { 
+                id: '1.1', group: '1.0 - DIMENSIONAMENTO DE AMBIENTE', title: 'Funcionalidade', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'funcional' }
+                ]
+            },
+            { 
+                id: '1.2', group: '1.0 - DIMENSIONAMENTO DE AMBIENTE', title: 'Climatização', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Atende a Norma', 'Insuficiente', 'Não'], name: 'clima' }
+                ]
+            },
+            
+            // 2.0
+            { 
+                id: '2.1', group: '2.0 - ESTRUTURA', title: 'Fundação', sub: [],
+                extraFields: [
+                    { label: 'Deformações visíveis', options: ['Sim', 'Não'], name: 'deformacoes' },
+                    { label: 'Estado do solo (externo)', options: ['Seco', 'Úmido', 'Muito Úmido', 'Encharcado'], name: 'solo' }
+                ]
+            },
+            { 
+                id: '2.2', group: '2.0 - ESTRUTURA', title: 'Lajes', sub: [],
+                extraFields: [
+                    { label: 'Destacamentos do concreto', options: ['Sim', 'Não'], name: 'destacamentos' }
+                ]
+            },
+            { 
+                id: '2.3', group: '2.0 - ESTRUTURA', title: 'Vigas', sub: [],
+                extraFields: [
+                    { label: 'Destacamentos do concreto', options: ['Sim', 'Não'], name: 'destacamentos' }
+                ]
+            },
+            { 
+                id: '2.4', group: '2.0 - ESTRUTURA', title: 'Pilares', sub: [],
+                extraFields: [
+                    { label: 'Destacamentos do concreto', options: ['Sim', 'Não'], name: 'destacamentos' }
+                ]
+            },
+
+            // 3.0
+            { id: '3.1', group: '3.0 - COBERTA', title: 'Telhamento', sub: [] },
+            { id: '3.2', group: '3.0 - COBERTA', title: 'Madeiramento', sub: [] },
+            { id: '3.3', group: '3.0 - COBERTA', title: 'Platibanda', sub: [] },
+            { id: '3.4', group: '3.0 - COBERTA', title: 'Rufos/Algeroz', sub: [] },
+            { id: '3.5', group: '3.0 - COBERTA', title: 'Chapim', sub: [] },
+            { id: '3.6', group: '3.0 - COBERTA', title: 'Beira e bica', sub: [] },
+            { id: '3.7', group: '3.0 - COBERTA', title: 'Acessibilidade', sub: [] },
+
+            // 4.0
+            { id: '4.1', group: '4.0 - IMPERMEABILIZAÇÃO', title: 'Laje', sub: [] },
+            { id: '4.2', group: '4.0 - IMPERMEABILIZAÇÃO', title: 'Calhas', sub: [] },
+            { 
+                id: '4.3', group: '4.0 - IMPERMEABILIZAÇÃO', title: 'Caixa d\'água', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Alvenaria', 'Outros', 'Não'], name: 'material' }
+                ]
+            },
+            { 
+                id: '4.4', group: '4.0 - IMPERMEABILIZAÇÃO', title: 'Cisterna', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+
+            // 5.0
+            { id: '5.1', group: '5.0 - FECHAMENTO / VEDAÇÃO', title: 'Alvenaria', sub: [] },
+            { 
+                id: '5.2', group: '5.0 - FECHAMENTO / VEDAÇÃO', title: 'Divisória', sub: [],
+                extraFields: [
+                    { label: 'Tipo', options: ['Div. Cega', 'Cega/Vidro', 'Eucatex', 'PVC'], name: 'tipo' }
+                ]
+            },
+
+            // 6.0
+            { id: '6.1', group: '6.0 - REVESTIMENTO', title: 'Reboco', sub: [] },
+            { id: '6.2', group: '6.0 - REVESTIMENTO', title: 'Cerâmica', sub: [] },
+            { id: '6.3', group: '6.0 - REVESTIMENTO', title: 'Azulejo', sub: [] },
+            { id: '6.4', group: '6.0 - REVESTIMENTO', title: 'Granito', sub: [] },
+            { id: '6.5', group: '6.0 - REVESTIMENTO', title: 'Pastilhas', sub: [] },
+            { id: '6.6', group: '6.0 - REVESTIMENTO', title: 'Rodapé', sub: [] },
+
+            // 7.0
+            { id: '7.1', group: '7.0 - PINTURA', title: 'Teto', sub: [] },
+            { id: '7.2', group: '7.0 - PINTURA', title: 'Alvenaria Interna', sub: [] },
+            { id: '7.3', group: '7.0 - PINTURA', title: 'Alvenaria Externa', sub: [] },
+            { id: '7.4', group: '7.0 - PINTURA', title: 'Esquadrias', sub: [] },
+            { id: '7.5', group: '7.0 - PINTURA', title: 'Grades', sub: [] },
+            { id: '7.6', group: '7.0 - PINTURA', title: 'Mastros', sub: [] },
+
+            // 8.0
+            { id: '8.1', group: '8.0 - PAVIMENTAÇÃO', title: 'Interno', sub: [] },
+            { id: '8.2', group: '8.0 - PAVIMENTAÇÃO', title: 'Externo', sub: [] },
+            { id: '8.3', group: '8.0 - PAVIMENTAÇÃO', title: 'Degraus', sub: [] },
+            { id: '8.4', group: '8.0 - PAVIMENTAÇÃO', title: 'Filete', sub: [] },
+            { id: '8.5', group: '8.0 - PAVIMENTAÇÃO', title: 'Espelho', sub: [] },
+
+            // 9.0
+            { id: '9.1', group: '9.0 - FORRO', title: 'Análise Geral', sub: [] },
+
+            // 10.0
+            { id: '10.1', group: '10.0 - ESQUADRIAS', title: 'Janelas', sub: [] },
+            { id: '10.2', group: '10.0 - ESQUADRIAS', title: 'Portas', sub: [] },
+            { id: '10.3', group: '10.0 - ESQUADRIAS', title: 'Portões', sub: [] },
+            { id: '10.4', group: '10.0 - ESQUADRIAS', title: 'Grades', sub: [] },
+            { id: '10.5', group: '10.0 - ESQUADRIAS', title: 'Fechaduras', sub: [] },
+            { id: '10.6', group: '10.0 - ESQUADRIAS', title: 'Dobradiças', sub: [] },
+
+            // 11.0
+            { 
+                id: '11.1', group: '11.0 - COMUNICAÇÃO VISUAL', title: 'Análise Geral', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+
+            // 12.0
+            { id: '12.1', group: '12.0 - INSTALAÇÕES ELÉTRICA / LÓGICA / TELEFÔNICA', title: 'Elétrica', sub: [] },
+            { id: '12.2', group: '12.0 - INSTALAÇÕES ELÉTRICA / LÓGICA / TELEFÔNICA', title: 'Lógica', sub: [] },
+            { id: '12.3', group: '12.0 - INSTALAÇÕES ELÉTRICA / LÓGICA / TELEFÔNICA', title: 'Telefônica', sub: [] },
+
+            // 13.0
+            { id: '13.1', group: '13.0 - INSTALAÇÕES HIDRÁULICA / SANITÁRIA', title: 'Água', sub: [] },
+            { id: '13.2', group: '13.0 - INSTALAÇÕES HIDRÁULICA / SANITÁRIA', title: 'Esgoto', sub: [] },
+
+            // 14.0
+            { 
+                id: '14.1', group: '14.0 - INSTALAÇÕES INCÊNDIO / CFTV / SPDA', title: 'Incêndio', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+            { 
+                id: '14.2', group: '14.0 - INSTALAÇÕES INCÊNDIO / CFTV / SPDA', title: 'CFTV', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+            { 
+                id: '14.3', group: '14.0 - INSTALAÇÕES INCÊNDIO / CFTV / SPDA', title: 'SPDA', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+
+            // 15.0
+            { 
+                id: '15.1', group: '15.0 - CASA DE GÁS', title: 'Análise Geral', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+
+            // 16.0
+            { 
+                id: '16.1', group: '16.0 - CASA DE BOMBA', title: 'Análise Geral', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+            { 
+                id: '16.2', group: '16.0 - CASA DE BOMBA', title: 'Eletrobomba', sub: [],
+                extraFields: [
+                    { label: 'Tipo', options: ['Sim', 'Centrífuga', 'Submersa', 'Não'], name: 'tipo' }
+                ]
+            },
+
+            // 17.0
+            { id: '17.1', group: '17.0 - CALÇADA INTERNA', title: 'Fundação', sub: [] },
+            { id: '17.2', group: '17.0 - CALÇADA INTERNA', title: 'Lastro de Concreto', sub: [] },
+            { id: '17.3', group: '17.0 - CALÇADA INTERNA', title: 'Cimentado', sub: [] },
+
+            // 18.0
+            { id: '18.1', group: '18.0 - CALÇADA EXTERNA', title: 'Análise Geral', sub: [] },
+
+            // 19.0
+            { id: '19.1', group: '19.0 - PASSARELA DE ACESSO', title: 'Fundação', sub: [] },
+            { id: '19.2', group: '19.0 - PASSARELA DE ACESSO', title: 'Lastro de Concreto', sub: [] },
+            { id: '19.3', group: '19.0 - PASSARELA DE ACESSO', title: 'Pavimentação', sub: [] },
+
+            // 20.0
+            { id: '20.1', group: '20.0 - ESTACIONAMENTO', title: 'Público', sub: [] },
+            { id: '20.2', group: '20.0 - ESTACIONAMENTO', title: 'Privativo', sub: [] },
+            { 
+                id: '20.3', group: '20.0 - ESTACIONAMENTO', title: 'Coberta / Toldo', sub: [],
+                extraFields: [
+                    { label: 'Estrutura', options: ['Sim', 'Est. Madeira', 'Est. Metálica', 'Não'], name: 'estrutura' }
+                ]
+            },
+            { 
+                id: '20.4', group: '20.0 - ESTACIONAMENTO', title: 'Iluminação', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+            { 
+                id: '20.5', group: '20.0 - ESTACIONAMENTO', title: 'Sinalização', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+
+            // 21.0
+            { 
+                id: '21.1', group: '21.0 - ACESSIBILIDADE', title: 'WC PNE', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+            { 
+                id: '21.2', group: '21.0 - ACESSIBILIDADE', title: 'Rampa de Acesso', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Com corrimão', 'Sem corrimão', 'Não'], name: 'detalhe' }
+                ]
+            },
+            { 
+                id: '21.3', group: '21.0 - ACESSIBILIDADE', title: 'Escada de Acesso', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Com corrimão', 'Sem corrimão', 'Não'], name: 'detalhe' }
+                ]
+            },
+            { 
+                id: '21.4', group: '21.0 - ACESSIBILIDADE', title: 'Pavimentação', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'existe' }
+                ]
+            },
+
+            // 22.0
+            { id: '22.1', group: '22.0 - MURO', title: 'Fundação', sub: [] },
+            { id: '22.2', group: '22.0 - MURO', title: 'Revestimento', sub: [] },
+            { id: '22.3', group: '22.0 - MURO', title: 'Pintura', sub: [] },
+            { id: '22.4', group: '22.0 - MURO', title: 'Segurança', sub: [] },
+            { 
+                id: '22.5', group: '22.0 - MURO', title: 'Cerca', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Elétrica', 'Espiral', 'Não'], name: 'tipo' }
+                ]
+            },
+
+            // 23.0
+            { 
+                id: '23.1', group: '23.0 - POSSIBILIDADE DE AMPLIAÇÃO', title: 'Análise Geral', sub: [],
+                extraFields: [
+                    { label: '', options: ['Sim', 'Não'], name: 'viavel' }
+                ]
+            },
+        ];
+
+        function App() {
+            const [view, setView] = useState('form'); 
+            const [formData, setFormData] = useState({
+                comarca: '',
+                varas: '',
+                entrancia: '',
+                imovelTipo: [],
+                area: '',
+                endereco: '',
+                data: new Date().toISOString().split('T')[0],
+                parecer: '',
+                responsavel: '',
+                fiscal: '', 
+                ratings: {}, 
+                justificativas: {},
+                extras: {} 
+            });
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleRatingChange = (sectionId, rating) => {
+                setFormData(prev => ({
+                    ...prev,
+                    ratings: { ...prev.ratings, [sectionId]: rating }
+                }));
+            };
+
+            const handleJustificativaChange = (sectionId, text) => {
+                setFormData(prev => ({
+                    ...prev,
+                    justificativas: { ...prev.justificativas, [sectionId]: text }
+                }));
+            };
+
+            const handleImovelCheck = (tipo) => {
+                setFormData(prev => {
+                    const current = prev.imovelTipo;
+                    if (current.includes(tipo)) {
+                        return { ...prev, imovelTipo: current.filter(t => t !== tipo) };
+                    } else {
+                        return { ...prev, imovelTipo: [...current, tipo] };
+                    }
+                });
+            };
+
+            const handleExtraFieldChange = (sectionId, fieldName, value) => {
+                const key = `${sectionId}_${fieldName}`;
+                setFormData(prev => ({
+                    ...prev,
+                    extras: { ...prev.extras, [key]: value }
+                }));
+            };
+
+            const generatePDF = () => {
+                const element = document.getElementById('report-content');
+                element.style.display = 'block';
+
+                const opt = {
+                    margin: 0, // Margem zero, pois o padding do .pdf-page já define a margem visual
+                    filename: `Vistoria_${formData.comarca || 'TJ'}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { 
+                        scale: 2, 
+                        useCORS: true,
+                        letterRendering: true,
+                        scrollY: 0
+                    },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+                };
+
+                html2pdf().set(opt).from(element).save().then(() => {
+                    if(view === 'form') element.style.display = 'none';
+                });
+            };
+
+            return (
+                <div className="min-h-screen pb-20">
+                    {/* Navbar */}
+                    <nav className="bg-green-800 text-white p-4 shadow-lg sticky top-0 z-50">
+                        <div className="container mx-auto flex justify-between items-center">
+                            <h1 className="text-xl font-bold flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+                                Vistoria TJCE
+                            </h1>
+                            <div className="flex gap-2">
+                                <button onClick={() => setView('form')} className={`px-3 py-1 rounded text-sm ${view === 'form' ? 'bg-white text-green-800 font-bold' : 'bg-green-700'}`}>Edição</button>
+                                <button onClick={() => setView('preview')} className={`px-3 py-1 rounded text-sm ${view === 'preview' ? 'bg-white text-green-800 font-bold' : 'bg-green-700'}`}>Visualizar</button>
+                            </div>
+                        </div>
+                    </nav>
+
+                    {/* Formulário */}
+                    {view === 'form' && (
+                        <div className="container mx-auto p-4 max-w-4xl">
+                            
+                            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                                <h2 className="text-lg font-bold border-b pb-2 mb-4 text-gray-700">Dados Gerais</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div><label className="block text-xs font-bold text-gray-600">Comarca</label><input type="text" name="comarca" value={formData.comarca} onChange={handleInputChange} className="w-full border rounded p-2"/></div>
+                                    <div><label className="block text-xs font-bold text-gray-600">N. Varas</label><input type="text" name="varas" value={formData.varas} onChange={handleInputChange} className="w-full border rounded p-2"/></div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600">Entrância</label>
+                                        <select name="entrancia" value={formData.entrancia} onChange={handleInputChange} className="w-full border rounded p-2">
+                                            <option value="">Selecione...</option>
+                                            <option value="Inicial">Inicial</option>
+                                            <option value="Intermediária">Intermediária</option>
+                                            <option value="Final">Final</option>
+                                        </select>
+                                    </div>
+                                    <div><label className="block text-xs font-bold text-gray-600">Data</label><input type="date" name="data" value={formData.data} onChange={handleInputChange} className="w-full border rounded p-2"/></div>
+                                    <div className="md:col-span-2">
+                                        <label className="block text-xs font-bold text-gray-600 mb-2">Imóvel</label>
+                                        <div className="flex flex-wrap gap-4">
+                                            {['Fórum', 'Vinculada', 'JECC', 'Residência', 'Outros'].map(tipo => (
+                                                <label key={tipo} className="flex items-center space-x-2 text-sm">
+                                                    <input type="checkbox" checked={formData.imovelTipo.includes(tipo)} onChange={() => handleImovelCheck(tipo)} className="rounded text-green-600"/><span>{tipo}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-600">Endereço</label><input type="text" name="endereco" value={formData.endereco} onChange={handleInputChange} className="w-full border rounded p-2"/></div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-6">
+                                {SECTIONS.map((section, index) => {
+                                    const showGroupHeader = section.group && (index === 0 || SECTIONS[index - 1].group !== section.group);
+                                    return (
+                                        <div key={section.id}>
+                                            {showGroupHeader && (
+                                                <div className="bg-gray-200 text-gray-800 font-bold p-3 rounded-t-lg border-l-4 border-gray-500 mt-8 shadow-sm text-sm">
+                                                    {section.group}
+                                                </div>
+                                            )}
+                                            <div className={`bg-white shadow-md p-4 border-l-4 border-green-500 ${showGroupHeader ? 'rounded-b-lg' : 'rounded-lg mt-4'}`}>
+                                                <div className="flex justify-between items-start flex-wrap gap-4">
+                                                    <div className="w-full md:w-1/3">
+                                                        <h3 className="font-bold text-green-900 text-sm">{section.id} - {section.title}</h3>
+                                                        {section.extraFields && section.extraFields.length > 0 && (
+                                                            <div className="mt-2 bg-green-50 p-2 rounded border border-green-100">
+                                                                {section.extraFields.map((field, fIdx) => (
+                                                                    <div key={fIdx} className="mb-2 last:mb-0">
+                                                                        {field.label && <div className="text-[10px] font-bold text-gray-600 mb-1">{field.label}</div>}
+                                                                        <div className="flex flex-wrap gap-2">
+                                                                            {field.options.map(opt => {
+                                                                                const isChecked = formData.extras[`${section.id}_${field.name}`] === opt;
+                                                                                return (
+                                                                                    <label key={opt} className={`cursor-pointer px-2 py-1 rounded text-[10px] border ${isChecked ? 'bg-green-600 text-white border-green-700' : 'bg-white text-gray-600 border-gray-300'}`}>
+                                                                                        <input type="radio" className="hidden" name={`${section.id}_${field.name}`} value={opt} checked={isChecked} onChange={() => handleExtraFieldChange(section.id, field.name, opt)}/>
+                                                                                        {opt}
+                                                                                    </label>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="w-full md:w-1/3 text-center">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Estado</label>
+                                                        <div className="flex justify-center gap-1">
+                                                            {[
+                                                                {val: 4, label: 'Péssimo', bg: 'bg-red-100 text-red-700'},
+                                                                {val: 3, label: 'Regular', bg: 'bg-orange-100 text-orange-700'},
+                                                                {val: 2, label: 'Bom', bg: 'bg-blue-100 text-blue-700'},
+                                                                {val: 1, label: 'Ótimo', bg: 'bg-green-100 text-green-700'},
+                                                                {val: 0, label: 'N/A', bg: 'bg-gray-100 text-gray-500'}
+                                                            ].map((opt) => (
+                                                                <button key={opt.val} onClick={() => handleRatingChange(section.id, opt.val)}
+                                                                    className={`w-12 h-12 flex flex-col items-center justify-center rounded border transition-all ${formData.ratings[section.id] === opt.val ? 'ring-2 ring-green-500 font-bold ' + opt.bg : 'bg-white border-gray-200 text-gray-400'}`}>
+                                                                    <span className="text-sm">{opt.val === 0 ? '-' : opt.val}</span>
+                                                                    <span className="text-[7px] uppercase">{opt.label}</span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                    <div className="w-full md:w-1/4">
+                                                        <textarea rows="2" className="w-full border rounded p-2 text-xs" placeholder="Obs..." value={formData.justificativas[section.id] || ''} onChange={(e) => handleJustificativaChange(section.id, e.target.value)}></textarea>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+                                <h2 className="text-lg font-bold border-b pb-2 mb-4 text-gray-700">Conclusão</h2>
+                                <textarea name="parecer" value={formData.parecer} onChange={handleInputChange} rows="4" className="w-full border rounded p-2 mb-4" placeholder="Parecer Final..."></textarea>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Responsável Técnico / Vistoriador</label>
+                                        <input type="text" name="responsavel" value={formData.responsavel} onChange={handleInputChange} className="w-full border rounded p-2"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Preview PDF */}
+                    <div className={`flex justify-center p-8 bg-gray-500 min-h-screen ${view === 'preview' ? '' : 'hidden'}`}>
+                        <div id="report-content" className={`pdf-page ${view === 'preview' ? 'pdf-visible' : ''}`}>
+                            
+                            {/* Cabeçalho do PDF */}
+                            <div className="flex items-center justify-between mb-2 border-b-2 border-black pb-2">
+                                <div className="w-20 h-20 bg-gray-200 flex items-center justify-center text-xs text-center border">Logo TJ</div>
+                                <div className="text-center flex-1 px-4">
+                                    <h1 className="font-bold text-sm">TRIBUNAL DE JUSTIÇA DO ESTADO DO CEARÁ</h1>
+                                    <h2 className="text-[10px] font-bold">SECRETARIA DE ADMINISTRAÇÃO E INFRAESTRUTURA</h2>
+                                    <h3 className="text-[10px]">RELATÓRIO DE VISTORIA TÉCNICA E ATUALIZAÇÃO CADASTRAL</h3>
+                                </div>
+                                <div className="text-right text-[9px]">
+                                    <p>Data: <b>{formData.data.split('-').reverse().join('/')}</b></p>
+                                </div>
+                            </div>
+
+                            {/* Dados do Imóvel no PDF */}
+                            <div className="border border-black p-2 mb-2 text-[9px]">
+                                <div className="flex justify-between mb-1">
+                                    <div className="w-1/3"><span className="field-label">COMARCA:</span> <span className="field-value">{formData.comarca}</span></div>
+                                    <div className="w-1/3"><span className="field-label">VARAS:</span> <span className="field-value">{formData.varas}</span></div>
+                                    <div className="w-1/3"><span className="field-label">ENTRÂNCIA:</span> <span className="field-value">{formData.entrancia}</span></div>
+                                </div>
+                                <div className="mb-1">
+                                    <span className="field-label mr-2">IMÓVEL:</span>
+                                    {['Fórum', 'Vinculada', 'JECC', 'Residência', 'Outros'].map(tipo => (
+                                        <span key={tipo} className="mr-3">
+                                            <span className={`parenthesis-check`}>{formData.imovelTipo.includes(tipo) ? '(X)' : '( )'}</span> {tipo}
+                                        </span>
+                                    ))}
+                                </div>
+                                <div><span className="field-label">ENDEREÇO:</span> <span className="field-value">{formData.endereco}</span></div>
+                            </div>
+
+                            {/* Tabela de Itens no PDF */}
+                            <table className="table-bordered text-[9px] w-full">
+                                <thead>
+                                    <tr className="bg-gray-200 text-center">
+                                        <th className="w-[40%]">ITENS VISTORIADOS</th>
+                                        <th className="w-[25%]">ESTADO DE CONSERVAÇÃO<br/><span className="text-[7px] font-normal">(4=Péssimo, 3=Regular, 2=Bom, 1=Ótimo)</span></th>
+                                        <th className="w-[35%]">JUSTIFICATIVA / DIAGNÓSTICO</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {SECTIONS.map((section, index) => {
+                                        const showGroupHeader = section.group && (index === 0 || SECTIONS[index - 1].group !== section.group);
+                                        return (
+                                            <React.Fragment key={section.id}>
+                                                {showGroupHeader && (
+                                                    <tr className="bg-gray-100">
+                                                        <td colSpan="3" className="font-bold text-[9px] p-1 border-t border-b border-black">{section.group}</td>
+                                                    </tr>
+                                                )}
+                                                <tr>
+                                                    <td>
+                                                        <div className="font-bold">{section.id} - {section.title}</div>
+                                                        {/* Renderização dos Campos Extras no PDF */}
+                                                        {section.extraFields && section.extraFields.length > 0 && (
+                                                            <div className="ml-2 mt-1 text-[8px]">
+                                                                {section.extraFields.map((field, fIdx) => (
+                                                                    <div key={fIdx} className="mb-1">
+                                                                        {field.label && <span className="font-bold mr-1">{field.label}:</span>}
+                                                                        <span className="break-words">
+                                                                            {field.options.map(opt => {
+                                                                                const isChecked = formData.extras[`${section.id}_${field.name}`] === opt;
+                                                                                return (
+                                                                                    <span key={opt} className="mr-2 inline-block">
+                                                                                        <span className="parenthesis-check">{isChecked ? '(X)' : '( )'}</span> {opt}
+                                                                                    </span>
+                                                                                );
+                                                                            })}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="text-center align-middle">
+                                                        <div className="flex justify-center items-center gap-1 mb-1">
+                                                            <span className="text-[6px] font-bold mr-1">PÉSSIMO</span>
+                                                            {[4,3,2,1].map(val => (
+                                                                <span key={val} className={`rating-circle ${formData.ratings[section.id] === val ? 'selected' : ''}`}>{val}</span>
+                                                            ))}
+                                                            <span className="text-[6px] font-bold ml-1">ÓTIMO</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="parenthesis-check text-[9px]">{formData.ratings[section.id] === 0 ? '(X)' : '( )'}</span> <span className="text-[7px]">NÃO EXISTE</span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div className="whitespace-pre-wrap font-mono text-[8px] uppercase">{formData.justificativas[section.id]}</div>
+                                                    </td>
+                                                </tr>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+
+                            {/* Rodapé do PDF */}
+                            <div className="mt-2 border border-black p-2 min-h-[80px]">
+                                <p className="field-label mb-1">PARECER FINAL:</p>
+                                <p className="font-mono text-[9px] uppercase text-justify">{formData.parecer}</p>
+                            </div>
+
+                            <div className="mt-8 flex justify-center text-center">
+                                <div className="border-t border-black w-1/2 pt-1">
+                                    <p className="font-bold uppercase text-[9px]">{formData.responsavel}</p>
+                                    <p className="text-[8px]">Responsável Técnico</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Botão Flutuante */}
+                    {view === 'preview' && (
+                        <div className="fixed bottom-6 right-6 flex flex-col gap-2">
+                            <button onClick={generatePDF} className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full shadow-lg flex items-center gap-2 transition transform hover:scale-105">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Baixar PDF
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
